@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <title>Tempo Strike</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      body, html, #root {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+        background-color: #000;
+        touch-action: none;
+      }
+      /* Ensure canvas doesn't capture weird touch highlights on mobile */
+      canvas {
+        outline: none;
+        -webkit-tap-highlight-color: rgba(255, 255, 255, 0);
+      }
+    </style>
+  <script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@18.3.1",
+    "react/jsx-runtime": "https://esm.sh/react@18.3.1/jsx-runtime?external=react",
+    "react-dom/client": "https://esm.sh/react-dom@18.3.1/client?external=react",
+    "react-dom": "https://esm.sh/react-dom@18.3.1?external=react",
+    "three": "https://esm.sh/three@0.167.1",
+    "@react-three/fiber": "https://esm.sh/@react-three/fiber@8.17.6?external=react,react-dom,three",
+    "@react-three/drei": "https://esm.sh/@react-three/drei@9.112.0?external=react,react-dom,three,@react-three/fiber",
+    "@mediapipe/tasks-vision": "https://esm.run/@mediapipe/tasks-vision@0.10.9",
+    "lucide-react": "https://esm.sh/lucide-react@0.436.0?external=react",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
+    "react/": "https://aistudiocdn.com/react@^19.2.0/"
+  }
+}
+</script>
+</head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>

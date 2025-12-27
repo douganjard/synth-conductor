@@ -1,0 +1,7 @@
+{
+  "name": "synth-conductor",
+  "description": "Use your webcam to track hand movements and control a digital synth.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
