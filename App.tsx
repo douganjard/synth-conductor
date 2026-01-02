@@ -1,240 +1,392 @@
+
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
 */
 
-
-import React, { useRef, useState, useEffect, useCallback } from 'react';
-import { Canvas } from '@react-three/fiber';
-import { Loader, useProgress } from '@react-three/drei';
-import { GameStatus, NoteData } from './types';
-import { DEMO_CHART, SONG_URL, SONG_BPM } from './constants';
+import React, { useRef, useState, useEffect } from 'react';
 import { useMediaPipe } from './hooks/useMediaPipe';
-import GameScene from './components/GameScene';
+import { useSynth } from './hooks/useSynth';
 import WebcamPreview from './components/WebcamPreview';
-import { Play, RefreshCw, VideoOff, Hand, Sparkles } from 'lucide-react';
+import { DEFAULT_SETTINGS, SynthSettings } from './types';
+import { 
+  MIN_FREQ, MAX_FREQ, 
+  MIN_CUTOFF, MAX_CUTOFF, 
+  MIN_LFO_RATE, MAX_LFO_RATE,
+  MAX_RESONANCE
+} from './constants';
+import { Waves, Zap, AudioLines, Settings2, Hand, Power, Activity } from 'lucide-react';
+
+interface SpatialPoint {
+  x: number;
+  y: number;
+  timestamp: number;
+}
 
 const App: React.FC = () => {
-  const [gameStatus, setGameStatus] = useState<GameStatus>(GameStatus.LOADING);
-  const [score, setScore] = useState(0);
-  const [combo, setCombo] = useState(0);
-  const [multiplier, setMultiplier] = useState(1);
-  const [health, setHealth] = useState(100);
-
-  const audioRef = useRef<HTMLAudioElement>(new Audio(SONG_URL));
+  const [settings, setSettings] = useState<SynthSettings>(DEFAULT_SETTINGS);
+  const [isAudioEnabled, setIsAudioEnabled] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   
-  // Now getting lastResultsRef from the hook
-  const { isCameraReady, handPositionsRef, lastResultsRef, error: cameraError } = useMediaPipe(videoRef);
-  const { progress } = useProgress(); 
+  const { isCameraReady, handStateRef, lastResultsRef } = useMediaPipe(videoRef);
+  const { 
+    initAudio, updateParams, 
+    setFrequency, setCutoff, setResonance,
+    setLFORate, setLFOAmount,
+    triggerOn, triggerOff 
+  } = useSynth();
 
-  // Game Logic Handlers
-  const handleNoteHit = useCallback((note: NoteData, goodCut: boolean) => {
-     let points = 100;
-     if (goodCut) points += 50; 
-
-     // Haptic feedback for impact
-     if (navigator.vibrate) {
-         navigator.vibrate(goodCut ? 40 : 20);
-     }
-
-     setCombo(c => {
-       const newCombo = c + 1;
-       if (newCombo > 30) setMultiplier(8);
-       else if (newCombo > 20) setMultiplier(4);
-       else if (newCombo > 10) setMultiplier(2);
-       else setMultiplier(1);
-       return newCombo;
-     });
-
-     setScore(s => s + (points * multiplier));
-     setHealth(h => Math.min(100, h + 2));
-  }, [multiplier]);
-
-  const handleNoteMiss = useCallback((note: NoteData) => {
-      setCombo(0);
-      setMultiplier(1);
-      setHealth(h => {
-          const newHealth = h - 15;
-          if (newHealth <= 0) {
-             setTimeout(() => endGame(false), 0);
-             return 0;
-          }
-          return newHealth;
-      });
-  }, []);
-
-  const startGame = async () => {
-    if (!isCameraReady) return;
-    
-    setScore(0);
-    setCombo(0);
-    setMultiplier(1);
-    setHealth(100);
-
-    DEMO_CHART.forEach(n => { n.hit = false; n.missed = false; });
-
-    try {
-      if (audioRef.current) {
-          audioRef.current.currentTime = 0;
-          await audioRef.current.play();
-          setGameStatus(GameStatus.PLAYING);
-      }
-    } catch (e) {
-        console.error("Audio play failed", e);
-        alert("Could not start audio. Please interact with the page first.");
-    }
-  };
-
-  const endGame = (victory: boolean) => {
-      setGameStatus(victory ? GameStatus.VICTORY : GameStatus.GAME_OVER);
-      if (audioRef.current) {
-          audioRef.current.pause();
-      }
-  };
-
+  // Unified controller loop
   useEffect(() => {
-      if (gameStatus === GameStatus.LOADING && isCameraReady) {
-          setGameStatus(GameStatus.IDLE);
+    let frame: number;
+    const loop = () => {
+      if (isAudioEnabled) {
+        const hands = handStateRef.current;
+        
+        // --- RIGHT HAND: LEAD VOICE (Pitch & Resonance) ---
+        if (hands.right.active) {
+          const freq = MIN_FREQ * Math.pow(MAX_FREQ / MIN_FREQ, hands.right.x);
+          const resonance = (1 - hands.right.y) * MAX_RESONANCE;
+          
+          setFrequency(freq);
+          setResonance(resonance);
+          triggerOn(settings);
+        } else {
+          triggerOff(settings);
+        }
+
+        // --- LEFT HAND: FILTER CONDUCOR (Cutoff & LFO Rate) ---
+        if (hands.left.active) {
+          // X: LFO Speed
+          const lfoRate = MIN_LFO_RATE + (MAX_LFO_RATE - MIN_LFO_RATE) * hands.left.x;
+          setLFORate(lfoRate);
+          
+          // Y: Filter Frequency (Cutoff)
+          const cutoff = MIN_CUTOFF * Math.pow(MAX_CUTOFF / MIN_CUTOFF, 1 - hands.left.y);
+          setCutoff(cutoff);
+          
+          setLFOAmount(settings.lfoAmount);
+        }
       }
-  }, [isCameraReady, gameStatus]);
+      frame = requestAnimationFrame(loop);
+    };
+    frame = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(frame);
+  }, [isAudioEnabled, settings, triggerOn, triggerOff, setFrequency, setCutoff, setResonance, setLFORate, setLFOAmount]);
+
+  const toggleAudio = () => {
+    initAudio();
+    setIsAudioEnabled(!isAudioEnabled);
+  };
+
+  const updateSetting = (key: keyof SynthSettings, value: any) => {
+    const newSettings = { ...settings, [key]: value };
+    setSettings(newSettings);
+    updateParams(newSettings);
+  };
 
   return (
-    <div className="relative w-full h-screen bg-black overflow-hidden font-sans">
-      {/* Hidden Video for Processing */}
+    <div className="relative w-full h-screen bg-[#050505] text-white flex flex-col font-sans overflow-hidden">
       <video 
         ref={videoRef} 
-        className="absolute opacity-0 pointer-events-none"
-        playsInline
-        muted
-        autoPlay
-        style={{ width: '640px', height: '480px' }}
+        className="opacity-0 pointer-events-none absolute w-1 h-1" 
+        playsInline muted autoPlay 
       />
 
-      {/* 3D Canvas */}
-      <Canvas shadows dpr={[1, 2]}>
-          {gameStatus !== GameStatus.LOADING && (
-             <GameScene 
-                gameStatus={gameStatus}
-                audioRef={audioRef}
-                handPositionsRef={handPositionsRef}
-                chart={DEMO_CHART}
-                onNoteHit={handleNoteHit}
-                onNoteMiss={handleNoteMiss}
-                onSongEnd={() => endGame(true)}
-             />
-          )}
-      </Canvas>
+      <header className="p-6 border-b border-white/5 flex justify-between items-center backdrop-blur-md bg-black/20 z-20">
+        <div className="flex items-center gap-3">
+          <div className="bg-emerald-500/20 p-2 rounded-lg">
+            <AudioLines className="text-emerald-400" size={24} />
+          </div>
+          <h1 className="text-xl font-bold tracking-tight">SYNTH <span className="text-emerald-400 underline decoration-emerald-400/30">CONDUCTOR</span></h1>
+        </div>
+        
+        <button 
+          onClick={toggleAudio}
+          className={`px-6 py-2 rounded-full font-bold transition-all flex items-center gap-2 ${
+            isAudioEnabled 
+              ? 'bg-red-500/10 text-red-400 border border-red-500/50 hover:bg-red-500/20' 
+              : 'bg-emerald-500 text-black hover:bg-emerald-400 shadow-[0_0_20px_rgba(16,185,129,0.4)]'
+          }`}
+        >
+          {isAudioEnabled ? "STOP ENGINE" : "START ENGINE"}
+        </button>
+      </header>
 
-      {/* Webcam Mini-Map Preview */}
-      <WebcamPreview 
-          videoRef={videoRef} 
-          resultsRef={lastResultsRef} 
-          isCameraReady={isCameraReady} 
-      />
+      <main className="flex-1 flex p-6 gap-6 relative overflow-hidden">
+        
+        <div className="w-80 flex flex-col gap-6 z-10 overflow-y-auto pr-2 custom-scrollbar">
+          <section className="bg-white/5 p-6 rounded-3xl border border-white/10 backdrop-blur-xl">
+            <div className="flex items-center gap-2 mb-6 text-white/50 font-medium uppercase text-xs tracking-widest">
+              <Waves size={14} /> Oscillator
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              {['sine', 'square', 'sawtooth', 'triangle'].map((type) => (
+                <button
+                  key={type}
+                  onClick={() => updateSetting('waveform', type)}
+                  className={`py-2 px-3 rounded-xl text-xs font-bold capitalize transition-all border ${
+                    settings.waveform === type 
+                      ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400' 
+                      : 'bg-white/5 border-transparent text-white/40 hover:bg-white/10'
+                  }`}
+                >
+                  {type}
+                </button>
+              ))}
+            </div>
+          </section>
 
-      {/* UI Overlay */}
-      <div className="absolute inset-0 pointer-events-none flex flex-col justify-between p-6 z-10">
-          
-          {/* HUD (Top) */}
-          <div className="flex justify-between items-start text-white w-full">
-             {/* Health Bar */}
-             <div className="w-1/3 max-w-xs">
-                 <div className="h-4 bg-gray-800 rounded-full overflow-hidden border-2 border-gray-700">
-                     <div 
-                        className={`h-full transition-all duration-300 ease-out ${health > 50 ? 'bg-green-500' : health > 20 ? 'bg-yellow-500' : 'bg-red-600'}`}
-                        style={{ width: `${health}%` }}
-                     />
-                 </div>
-                 <p className="text-xs mt-1 opacity-70">System Integrity</p>
-             </div>
+          <section className="bg-white/5 p-6 rounded-3xl border border-white/10 backdrop-blur-xl">
+            <div className="flex items-center gap-2 mb-6 text-white/50 font-medium uppercase text-xs tracking-widest">
+              <Activity size={14} /> LFO Modulation
+            </div>
+            <div className="space-y-6">
+              <ControlSlider 
+                label="LFO Rate" 
+                value={settings.lfoRate} 
+                min={MIN_LFO_RATE} max={MAX_LFO_RATE} step={0.1} 
+                onChange={(v) => updateSetting('lfoRate', v)} 
+              />
+              <ControlSlider 
+                label="LFO Amount" 
+                value={settings.lfoAmount} 
+                min={0} max={4000} step={1} 
+                onChange={(v) => updateSetting('lfoAmount', v)} 
+              />
+            </div>
+          </section>
 
-             {/* Score & Combo */}
-             <div className="text-center">
-                 <h1 className="text-5xl font-bold tracking-wider drop-shadow-[0_0_10px_rgba(59,130,246,0.8)]">
-                     {score.toLocaleString()}
-                 </h1>
-                 <div className="mt-2 flex flex-col items-center">
-                     <p className={`text-2xl font-bold ${combo > 10 ? 'text-blue-400 scale-110' : 'text-gray-300'} transition-all`}>
-                         {combo}x COMBO
-                     </p>
-                     {multiplier > 1 && (
-                         <span className="text-sm px-2 py-1 bg-blue-900 rounded-full mt-1 animate-pulse">
-                             {multiplier}x Multiplier!
-                         </span>
-                     )}
-                 </div>
-             </div>
-             
-             <div className="w-1/3"></div>
+          <section className="bg-white/5 p-6 rounded-3xl border border-white/10 backdrop-blur-xl flex-1 min-h-[300px]">
+            <div className="flex items-center gap-2 mb-6 text-white/50 font-medium uppercase text-xs tracking-widest">
+              <Settings2 size={14} /> Master Envelope
+            </div>
+            
+            <div className="space-y-6">
+              <ControlSlider label="Attack" value={settings.attack} min={0.01} max={2} step={0.01} onChange={(v) => updateSetting('attack', v)} />
+              <ControlSlider label="Release" value={settings.release} min={0.01} max={3} step={0.01} onChange={(v) => updateSetting('release', v)} />
+              <ControlSlider label="Resonance" value={settings.resonance} min={0} max={20} step={0.1} onChange={(v) => updateSetting('resonance', v)} />
+              <ControlSlider label="Master Vol" value={settings.volume} min={0} max={1} step={0.01} onChange={(v) => updateSetting('volume', v)} />
+            </div>
+          </section>
+        </div>
+
+        <div className="flex-1 flex flex-col gap-4">
+          <div className="flex-1 bg-white/5 rounded-[40px] border border-white/10 relative overflow-hidden group shadow-inner">
+             {/* 2D Trajectory Plot Background */}
+             <SpatialPlotBackground stateRef={handStateRef} />
+
+             <div className="absolute left-10 top-1/2 -translate-y-1/2 -rotate-90 text-[10px] text-red-500/30 font-mono tracking-widest uppercase origin-left pointer-events-none">Filter Conduct (LEFT HAND)</div>
+             <div className="absolute right-10 top-1/2 -translate-y-1/2 rotate-90 text-[10px] text-blue-500/30 font-mono tracking-widest uppercase origin-right pointer-events-none">Lead Voice (RIGHT HAND)</div>
+
+             {!isAudioEnabled && (
+                <div className="absolute inset-0 flex items-center justify-center backdrop-blur-md bg-black/40 z-20">
+                   <div className="text-center p-8 bg-black border border-white/10 rounded-3xl max-w-sm">
+                      <Zap className="mx-auto mb-4 text-emerald-400" size={48} />
+                      <h3 className="text-xl font-bold mb-2">Conductor Mode</h3>
+                      <p className="text-white/40 text-sm mb-6">Left: Filter Cutoff + LFO Rate<br/>Right: Pitch + Resonance</p>
+                      <button onClick={toggleAudio} className="bg-emerald-500 text-black px-8 py-3 rounded-full font-bold shadow-lg">START CONDUCTING</button>
+                   </div>
+                </div>
+             )}
+
+             <PerformancePointer state={handStateRef.current} />
           </div>
 
-          {/* Menus (Centered) */}
-          <div className="absolute inset-0 flex items-center justify-center pointer-events-auto">
+          <div className="h-24 bg-white/5 rounded-3xl border border-white/10 flex items-center px-8 justify-between">
+              <div className="flex items-center gap-6">
+                  <div className="flex items-center gap-3">
+                    <Hand className="text-blue-500/40" size={28} />
+                    <div className="text-[10px] font-mono leading-tight">
+                        <span className="block text-blue-400">RIGHT HAND (LEAD)</span>
+                        <span className="text-white/30 uppercase tracking-tighter">X: Pitch / Y: Resonance</span>
+                    </div>
+                  </div>
+                  <div className="w-px h-8 bg-white/10" />
+                  <div className="flex items-center gap-3">
+                    <Hand className="text-red-500/40" size={28} />
+                    <div className="text-[10px] font-mono leading-tight">
+                        <span className="block text-red-400">LEFT HAND (FILTER)</span>
+                        <span className="text-white/30 uppercase tracking-tighter">X: LFO Rate / Y: Cutoff</span>
+                    </div>
+                  </div>
+              </div>
               
-              {gameStatus === GameStatus.LOADING && (
-                  <div className="bg-black/80 p-10 rounded-2xl flex flex-col items-center border border-blue-900/50 backdrop-blur-md">
-                      <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-blue-500 mb-6"></div>
-                      <h2 className="text-2xl text-white font-bold mb-2">Initializing System</h2>
-                      <p className="text-blue-300">{!isCameraReady ? "Waiting for camera..." : "Loading assets..."}</p>
-                      {cameraError && <p className="text-red-500 mt-4 max-w-xs text-center">{cameraError}</p>}
+              <div className="text-right">
+                  <div className="text-[10px] text-white/20 uppercase tracking-tighter mb-1">Engine Output</div>
+                  <div className="flex items-center justify-end gap-3">
+                    <div className="flex flex-col items-end">
+                       <span className={`text-[9px] ${handStateRef.current.left.active ? 'text-red-400' : 'text-white/10'}`}>FILTER STAGE</span>
+                       <span className={`text-[9px] ${handStateRef.current.right.active ? 'text-blue-400' : 'text-white/10'}`}>VCO LEAD</span>
+                    </div>
+                    <div className={`w-3 h-3 rounded-full ${isCameraReady ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'}`} />
                   </div>
-              )}
-
-              {gameStatus === GameStatus.IDLE && (
-                  <div className="bg-black/80 p-12 rounded-3xl text-center border-2 border-blue-500/30 backdrop-blur-xl max-w-lg">
-                      <div className="mb-6 flex justify-center">
-                         <Sparkles className="w-16 h-16 text-blue-400" />
-                      </div>
-                      <h1 className="text-7xl font-black text-white mb-6 tracking-tighter italic drop-shadow-[0_0_30px_rgba(59,130,246,0.6)]">
-                          TEMPO <span className="text-blue-500">STRIKE</span>
-                      </h1>
-                      <div className="space-y-4 text-gray-300 mb-8">
-                          <p className="flex items-center justify-center gap-2">
-                              <Hand className="w-5 h-5 text-blue-400" /> 
-                              <span>Stand back so your hands are visible.</span>
-                          </p>
-                          <p>Use your <span className="text-red-500 font-bold">LEFT</span> and <span className="text-blue-500 font-bold">RIGHT</span> hands.</p>
-                          <p>Slash the <span className="text-white font-bold">Sparks</span> to the beat!</p>
-                      </div>
-
-                      {!isCameraReady ? (
-                           <div className="flex items-center justify-center text-red-400 gap-2 bg-red-900/20 p-4 rounded-lg">
-                               <VideoOff /> Camera not ready yet.
-                           </div>
-                      ) : (
-                          <button 
-                              onClick={startGame}
-                              className="bg-blue-600 hover:bg-blue-500 text-white text-xl font-bold py-4 px-12 rounded-full transition-all transform hover:scale-105 hover:shadow-[0_0_30px_rgba(59,130,246,0.6)] flex items-center justify-center mx-auto gap-3"
-                          >
-                              <Play fill="currentColor" /> START GAME
-                          </button>
-                      )}
-
-                      <div className="text-white/30 text-sm text-center mt-8">
-                           Created by <a href="https://x.com/ammaar" target="_blank" rel="noopener noreferrer" className="hover:text-blue-400 transition-colors underline decoration-blue-400/30">@ammaar</a>
-                      </div>
-                  </div>
-              )}
-
-              {(gameStatus === GameStatus.GAME_OVER || gameStatus === GameStatus.VICTORY) && (
-                  <div className="bg-black/90 p-12 rounded-3xl text-center border-2 border-white/10 backdrop-blur-xl">
-                      <h2 className={`text-6xl font-bold mb-4 ${gameStatus === GameStatus.VICTORY ? 'text-green-400' : 'text-red-500'}`}>
-                          {gameStatus === GameStatus.VICTORY ? "SEQUENCE COMPLETE" : "SYSTEM FAILURE"}
-                      </h2>
-                      <p className="text-white text-3xl mb-8">Final Score: {score.toLocaleString()}</p>
-                      <button 
-                          onClick={() => setGameStatus(GameStatus.IDLE)}
-                          className="bg-white/10 hover:bg-white/20 text-white text-xl py-3 px-8 rounded-full flex items-center justify-center mx-auto gap-2 transition-colors"
-                      >
-                          <RefreshCw /> Play Again
-                      </button>
-                  </div>
-              )}
+              </div>
           </div>
-      </div>
+        </div>
+      </main>
+
+      <WebcamPreview videoRef={videoRef} resultsRef={lastResultsRef} isCameraReady={isCameraReady} />
+
+      <footer className="p-4 text-center text-[10px] text-white/10 uppercase tracking-[0.3em] font-mono pointer-events-none">
+          Spectral Synthesis Engine • Conductor Mode v2.2
+      </footer>
     </div>
   );
 };
+
+const SpatialPlotBackground: React.FC<{ stateRef: React.MutableRefObject<any> }> = ({ stateRef }) => {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const leftHistoryRef = useRef<SpatialPoint[]>([]);
+  const rightHistoryRef = useRef<SpatialPoint[]>([]);
+  const MAX_HISTORY_MS = 5000;
+
+  useEffect(() => {
+    let frame: number;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const render = () => {
+      const now = performance.now();
+      const state = stateRef.current;
+      
+      // Update data
+      if (state.left.active) {
+        leftHistoryRef.current.push({ x: state.left.x, y: state.left.y, timestamp: now });
+      }
+      if (state.right.active) {
+        rightHistoryRef.current.push({ x: state.right.x, y: state.right.y, timestamp: now });
+      }
+      
+      leftHistoryRef.current = leftHistoryRef.current.filter(p => now - p.timestamp < MAX_HISTORY_MS);
+      rightHistoryRef.current = rightHistoryRef.current.filter(p => now - p.timestamp < MAX_HISTORY_MS);
+
+      // Handle Resize
+      if (canvas.width !== canvas.clientWidth || canvas.height !== canvas.clientHeight) {
+        canvas.width = canvas.clientWidth;
+        canvas.height = canvas.clientHeight;
+      }
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      
+      // Draw grid
+      ctx.strokeStyle = 'rgba(255,255,255,0.03)';
+      ctx.lineWidth = 1;
+      const gridSize = 80;
+      ctx.beginPath();
+      for(let x = 0; x < canvas.width; x += gridSize) {
+        ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height);
+      }
+      for(let y = 0; y < canvas.height; y += gridSize) {
+        ctx.moveTo(0, y); ctx.lineTo(canvas.width, y);
+      }
+      ctx.stroke();
+
+      const drawTrail = (history: SpatialPoint[], color: string) => {
+        if (history.length < 2) return;
+        ctx.lineJoin = 'round';
+        ctx.lineCap = 'round';
+        
+        for (let i = 0; i < history.length - 1; i++) {
+          const p1 = history[i];
+          const p2 = history[i + 1];
+          const ageRatio = (now - p1.timestamp) / MAX_HISTORY_MS;
+          const opacity = Math.max(0, 1.0 - ageRatio);
+          
+          ctx.strokeStyle = color;
+          ctx.lineWidth = opacity * 6; // Thicker lines for the main pad
+          ctx.globalAlpha = opacity * 0.4;
+          
+          ctx.beginPath();
+          ctx.moveTo(p1.x * canvas.width, p1.y * canvas.height);
+          ctx.lineTo(p2.x * canvas.width, p2.y * canvas.height);
+          ctx.stroke();
+        }
+        ctx.globalAlpha = 1.0;
+      };
+
+      drawTrail(leftHistoryRef.current, '#ef4444');
+      drawTrail(rightHistoryRef.current, '#3b82f6');
+
+      frame = requestAnimationFrame(render);
+    };
+
+    render();
+    return () => cancelAnimationFrame(frame);
+  }, [stateRef]);
+
+  return <canvas ref={canvasRef} className="absolute inset-0 w-full h-full pointer-events-none" />;
+};
+
+const ControlSlider: React.FC<{ label: string, value: number, min: number, max: number, step: number, onChange: (v: number) => void }> = ({ label, value, min, max, step, onChange }) => (
+  <div className="space-y-2">
+    <div className="flex justify-between text-[10px] font-bold text-white/40 uppercase">
+      <span>{label}</span>
+      <span className="font-mono text-emerald-400">{typeof value === 'number' ? value.toFixed(2) : value}</span>
+    </div>
+    <input 
+      type="range" 
+      min={min} max={max} step={step} 
+      value={value}
+      onChange={(e) => onChange(parseFloat(e.target.value))}
+      className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+    />
+  </div>
+);
+
+const PerformancePointer: React.FC<{ state: any }> = ({ state }) => {
+    const [leftPos, setLeftPos] = useState({ x: 0.5, y: 0.5, active: false });
+    const [rightPos, setRightPos] = useState({ x: 0.5, y: 0.5, active: false });
+
+    useEffect(() => {
+        let frame: number;
+        const update = () => {
+            setLeftPos(state.left);
+            setRightPos(state.right);
+            frame = requestAnimationFrame(update);
+        };
+        update();
+        return () => cancelAnimationFrame(frame);
+    }, [state]);
+
+    return (
+        <>
+            {/* FILTER CONDUCOR (LEFT HAND) */}
+            <div 
+                className={`absolute transition-opacity duration-300 pointer-events-none z-10 ${leftPos.active ? 'opacity-100' : 'opacity-0'}`}
+                style={{ left: `${leftPos.x * 100}%`, top: `${leftPos.y * 100}%`, transform: 'translate(-50%, -50%)' }}
+            >
+                <div className="relative flex items-center justify-center">
+                    <div className="w-12 h-12 border-2 border-red-500 rounded-full flex items-center justify-center bg-red-500/5 shadow-[0_0_20px_rgba(239,68,68,0.2)]">
+                        <div className="w-2 h-2 bg-red-500 rounded-full shadow-[0_0_15px_rgba(239,68,68,0.8)]" />
+                    </div>
+                    <div className="absolute -top-10 whitespace-nowrap text-[8px] font-mono text-red-400 bg-black/60 px-2 py-0.5 rounded border border-red-500/20 uppercase tracking-tighter">
+                        Filter: {Math.round(MIN_CUTOFF * Math.pow(MAX_CUTOFF / MIN_CUTOFF, 1 - leftPos.y))}Hz
+                    </div>
+                </div>
+            </div>
+
+            {/* LEAD VOICE (RIGHT HAND) */}
+            <div 
+                className={`absolute transition-opacity duration-300 pointer-events-none z-10 ${rightPos.active ? 'opacity-100' : 'opacity-0'}`}
+                style={{ left: `${rightPos.x * 100}%`, top: `${rightPos.y * 100}%`, transform: 'translate(-50%, -50%)' }}
+            >
+                <div className="relative flex items-center justify-center">
+                    <div className="w-16 h-16 border-2 border-blue-500 rounded-full flex items-center justify-center bg-blue-500/5 shadow-[0_0_20px_rgba(59,130,246,0.2)]">
+                        <div className="w-3 h-3 bg-blue-500 rounded-full shadow-[0_0_15px_rgba(59,130,246,0.8)]" />
+                    </div>
+                    <div className="absolute -top-12 whitespace-nowrap text-[8px] font-mono text-blue-400 bg-black/60 px-2 py-0.5 rounded border border-blue-500/20 uppercase tracking-tighter">
+                        Pitch: {Math.round(MIN_FREQ * Math.pow(MAX_FREQ / MIN_FREQ, rightPos.x))}Hz
+                    </div>
+                </div>
+            </div>
+
+            <div className="absolute left-1/2 top-0 bottom-0 w-px bg-white/5 pointer-events-none" />
+            <div className="absolute top-1/2 left-0 right-0 h-px bg-white/5 pointer-events-none" />
+        </>
+    );
+}
 
 export default App;

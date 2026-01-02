@@ -1,3 +1,4 @@
+
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
@@ -5,50 +6,18 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { HandLandmarker, FilesetResolver, HandLandmarkerResult } from '@mediapipe/tasks-vision';
-import * as THREE from 'three';
-
-// Mapping 2D normalized coordinates to 3D game world.
-const mapHandToWorld = (x: number, y: number): THREE.Vector3 => {
-  const GAME_X_RANGE = 5; 
-  const GAME_Y_RANGE = 3.5;
-  const Y_OFFSET = 0.8;
-
-  // MediaPipe often returns mirrored X if facingMode is 'user'.
-  // We might need to invert X depending on the final behavior.
-  // For now, assuming standard mirroring where 0 is left-screen (user's right hand physically if mirrored).
-  const worldX = (0.5 - x) * GAME_X_RANGE; 
-  const worldY = (1.0 - y) * GAME_Y_RANGE - (GAME_Y_RANGE / 2) + Y_OFFSET;
-
-  const worldZ = -Math.max(0, worldY * 0.2);
-
-  return new THREE.Vector3(worldX, Math.max(0.1, worldY), worldZ);
-};
+import { HandState, HandData } from '../types';
 
 export const useMediaPipe = (videoRef: React.RefObject<HTMLVideoElement | null>) => {
   const [isCameraReady, setIsCameraReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const handPositionsRef = useRef<{
-    left: THREE.Vector3 | null;
-    right: THREE.Vector3 | null;
-    lastLeft: THREE.Vector3 | null;
-    lastRight: THREE.Vector3 | null;
-    leftVelocity: THREE.Vector3;
-    rightVelocity: THREE.Vector3;
-    lastTimestamp: number;
-  }>({
-    left: null,
-    right: null,
-    lastLeft: null,
-    lastRight: null,
-    leftVelocity: new THREE.Vector3(0,0,0),
-    rightVelocity: new THREE.Vector3(0,0,0),
-    lastTimestamp: 0
+  const handStateRef = useRef<HandState>({
+    left: { x: 0.5, y: 0.5, active: false },
+    right: { x: 0.5, y: 0.5, active: false }
   });
 
-  // To expose raw results for UI preview
   const lastResultsRef = useRef<HandLandmarkerResult | null>(null);
-
   const landmarkerRef = useRef<HandLandmarker | null>(null);
   const requestRef = useRef<number>(0);
 
@@ -100,7 +69,8 @@ export const useMediaPipe = (videoRef: React.RefObject<HTMLVideoElement | null>)
 
         if (videoRef.current && isActive) {
           videoRef.current.srcObject = stream;
-          videoRef.current.onloadeddata = () => {
+          // onloadedmetadata is generally more reliable for sizing
+          videoRef.current.onloadedmetadata = () => {
              if (isActive) {
                  setIsCameraReady(true);
                  predictWebcam();
@@ -117,7 +87,6 @@ export const useMediaPipe = (videoRef: React.RefObject<HTMLVideoElement | null>)
         if (!videoRef.current || !landmarkerRef.current || !isActive) return;
 
         const video = videoRef.current;
-        // Only process if video has data
         if (video.videoWidth > 0 && video.videoHeight > 0) {
              let startTimeMs = performance.now();
              try {
@@ -125,90 +94,67 @@ export const useMediaPipe = (videoRef: React.RefObject<HTMLVideoElement | null>)
                  lastResultsRef.current = results;
                  processResults(results);
              } catch (e) {
-                 // Sometimes detectForVideo fails if timestamps aren't strictly increasing or video is not ready
                  console.warn("Detection failed this frame", e);
              }
         }
-
         requestRef.current = requestAnimationFrame(predictWebcam);
     };
 
     const processResults = (results: HandLandmarkerResult) => {
-        const now = performance.now();
-        const deltaTime = (now - handPositionsRef.current.lastTimestamp) / 1000;
-        handPositionsRef.current.lastTimestamp = now;
-
-        let newLeft: THREE.Vector3 | null = null;
-        let newRight: THREE.Vector3 | null = null;
+        let left: HandData = { ...handStateRef.current.left, active: false };
+        let right: HandData = { ...handStateRef.current.right, active: false };
 
         if (results.landmarks) {
           for (let i = 0; i < results.landmarks.length; i++) {
             const landmarks = results.landmarks[i];
-            // Note: MediaPipe 'handedness' can be counter-intuitive when mirrored.
             const classification = results.handedness[i][0];
             const isRight = classification.categoryName === 'Right'; 
             
-            // Index finger tip is landmark 8
+            // Average position of all landmarks for a smoother "center"
+            // or just use palm base (0) or index tip (8)
             const tip = landmarks[8];
-            const worldPos = mapHandToWorld(tip.x, tip.y);
+            
+            // Mirror X because it's a webcam feed
+            const x = 1.0 - tip.x;
+            const y = tip.y;
 
             if (isRight) {
-                 newRight = worldPos; 
+                 right = { x, y, active: true };
             } else {
-                 newLeft = worldPos;
+                 left = { x, y, active: true };
             }
           }
         }
 
-        // --- Update State with Smoothing & Velocity ---
-        const s = handPositionsRef.current;
-        const LERP = 0.6; 
+        // Apply slight smoothing
+        const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+        const T = 0.4;
 
-        // Left
-        if (newLeft) {
-            if (s.left) {
-                newLeft.lerpVectors(s.left, newLeft, LERP);
-                if (deltaTime > 0.001) { 
-                     s.leftVelocity.subVectors(newLeft, s.left).divideScalar(deltaTime);
-                }
+        handStateRef.current = {
+            left: {
+                x: lerp(handStateRef.current.left.x, left.x, T),
+                y: lerp(handStateRef.current.left.y, left.y, T),
+                active: left.active
+            },
+            right: {
+                x: lerp(handStateRef.current.right.x, right.x, T),
+                y: lerp(handStateRef.current.right.y, right.y, T),
+                active: right.active
             }
-            s.lastLeft = s.left ? s.left.clone() : newLeft.clone();
-            s.left = newLeft;
-        } else {
-            s.left = null;
-        }
-
-        // Right
-        if (newRight) {
-             if (s.right) {
-                 newRight.lerpVectors(s.right, newRight, LERP);
-                 if (deltaTime > 0.001) {
-                      s.rightVelocity.subVectors(newRight, s.right).divideScalar(deltaTime);
-                 }
-             }
-             s.lastRight = s.right ? s.right.clone() : newRight.clone();
-             s.right = newRight;
-        } else {
-            s.right = null;
-        }
+        };
     };
 
     setupMediaPipe();
 
     return () => {
       isActive = false;
-      if (requestRef.current) {
-          cancelAnimationFrame(requestRef.current);
-      }
-      if (landmarkerRef.current) {
-          landmarkerRef.current.close();
-      }
+      if (requestRef.current) cancelAnimationFrame(requestRef.current);
+      if (landmarkerRef.current) landmarkerRef.current.close();
       if (videoRef.current && videoRef.current.srcObject) {
-          const stream = videoRef.current.srcObject as MediaStream;
-          stream.getTracks().forEach(t => t.stop());
+          (videoRef.current.srcObject as MediaStream).getTracks().forEach(t => t.stop());
       }
     };
   }, [videoRef]);
 
-  return { isCameraReady, handPositionsRef, lastResultsRef, error };
+  return { isCameraReady, handStateRef, lastResultsRef, error };
 };

@@ -1,8 +1,8 @@
+
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
 */
-
 
 import React, { useEffect, useRef } from 'react';
 import { HandLandmarkerResult } from '@mediapipe/tasks-vision';
@@ -34,68 +34,66 @@ const WebcamPreview: React.FC<WebcamPreviewProps> = ({ videoRef, resultsRef, isC
             const canvas = canvasRef.current;
             const video = videoRef.current;
 
-            if (canvas && video && video.readyState >= 2) { // HAVE_CURRENT_DATA or better
+            if (canvas && video && video.readyState >= 2) {
                 const ctx = canvas.getContext('2d');
                 if (ctx) {
-                    // Keep canvas internal resolution matching the video for sharpness
                     if (canvas.width !== video.videoWidth) canvas.width = video.videoWidth;
                     if (canvas.height !== video.videoHeight) canvas.height = video.videoHeight;
 
+                    // Clear canvas
                     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
                     // 1. Draw Video Feed (Mirrored)
                     ctx.save();
                     ctx.scale(-1, 1);
                     ctx.translate(-canvas.width, 0);
-                    // Lower opacity slightly for a more "HUD" feel
+                    
+                    // Increased visibility for the tracking feed
                     ctx.globalAlpha = 0.8;
                     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                    
+                    // Add a subtle darkening overlay to make landmarks pop
+                    ctx.globalAlpha = 0.2;
+                    ctx.fillStyle = 'black';
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+                    
                     ctx.restore();
+
+                    // Reset alpha for drawing landmarks
                     ctx.globalAlpha = 1.0;
 
-                    // 2. Draw Landmarks (if any)
+                    // 2. Draw Landmarks
                     if (resultsRef.current && resultsRef.current.landmarks) {
                         for (let i = 0; i < resultsRef.current.landmarks.length; i++) {
                             const landmarks = resultsRef.current.landmarks[i];
-                            
-                            // Safety checks for handedness
-                            const handInfo = resultsRef.current.handedness[i];
-                            if (!handInfo || !handInfo[0]) continue;
-
-                            const handedness = handInfo[0];
-                            // 'Right' category from MediaPipe usually means it's your right hand.
-                            // We color them to match game sabers: Left = Red, Right = Blue
-                            const isRight = handedness.categoryName === 'Right';
+                            const classification = resultsRef.current.handedness[i][0];
+                            const isRight = classification.categoryName === 'Right';
                             const color = isRight ? COLORS.right : COLORS.left;
 
+                            ctx.shadowBlur = 10;
+                            ctx.shadowColor = color;
                             ctx.strokeStyle = color;
                             ctx.fillStyle = color;
                             ctx.lineWidth = 3;
 
-                            // Draw connections
+                            // Connections
                             ctx.beginPath();
                             for (const [start, end] of HAND_CONNECTIONS) {
                                 const p1 = landmarks[start];
                                 const p2 = landmarks[end];
-                                // Mirror X coordinates: (1 - x) because video is mirrored
                                 ctx.moveTo((1 - p1.x) * canvas.width, p1.y * canvas.height);
                                 ctx.lineTo((1 - p2.x) * canvas.width, p2.y * canvas.height);
                             }
                             ctx.stroke();
 
-                            // Draw joints
+                            // Joints
+                            ctx.shadowBlur = 5;
                             for (const lm of landmarks) {
                                 ctx.beginPath();
-                                ctx.arc((1 - lm.x) * canvas.width, lm.y * canvas.height, 4, 0, 2 * Math.PI);
+                                ctx.arc((1 - lm.x) * canvas.width, lm.y * canvas.height, 3, 0, 2 * Math.PI);
                                 ctx.fill();
                             }
-
-                            // Highlight index finger tip (Saber point)
-                            const tip = landmarks[8];
-                            ctx.beginPath();
-                            ctx.fillStyle = 'white';
-                            ctx.arc((1 - tip.x) * canvas.width, tip.y * canvas.height, 7, 0, 2 * Math.PI);
-                            ctx.fill();
+                            ctx.shadowBlur = 0;
                         }
                     }
                 }
@@ -112,12 +110,12 @@ const WebcamPreview: React.FC<WebcamPreviewProps> = ({ videoRef, resultsRef, isC
     if (!isCameraReady) return null;
 
     return (
-        <div className="fixed bottom-4 right-4 w-64 h-48 bg-black/60 border-2 border-blue-500/30 rounded-xl overflow-hidden backdrop-blur-md z-50 shadow-[0_0_20px_rgba(0,0,0,0.5)] pointer-events-none transition-opacity duration-500">
-             {/* Header/Label */}
-            <div className="absolute top-0 left-0 right-0 bg-black/40 text-[10px] text-blue-300/70 px-2 py-1 font-mono uppercase tracking-widest">
-                Tracking Feed
+        <div className="fixed bottom-6 left-6 w-48 h-36 bg-black/80 border border-white/20 rounded-2xl overflow-hidden backdrop-blur-md z-30 shadow-2xl pointer-events-none group ring-1 ring-white/5">
+            <div className="absolute top-2 left-3 text-[8px] text-white/50 font-mono uppercase tracking-[0.2em] z-10 flex items-center gap-2">
+                <div className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
+                Live Tracking
             </div>
-            <canvas ref={canvasRef} className="w-full h-full object-cover mt-4" />
+            <canvas ref={canvasRef} className="w-full h-full object-cover grayscale-[0.3]" />
         </div>
     );
 };

@@ -1,0 +1,140 @@
+
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+*/
+
+import { useRef, useCallback } from 'react';
+import { SynthSettings, DEFAULT_SETTINGS } from '../types';
+
+export const useSynth = () => {
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const oscRef = useRef<OscillatorNode | null>(null);
+  const lfoRef = useRef<OscillatorNode | null>(null);
+  const lfoGainRef = useRef<GainNode | null>(null);
+  const filterRef = useRef<BiquadFilterNode | null>(null);
+  const gainRef = useRef<GainNode | null>(null);
+  const mainGainRef = useRef<GainNode | null>(null);
+  const isPlayingRef = useRef(false);
+
+  const initAudio = useCallback(() => {
+    if (audioCtxRef.current) return;
+
+    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const lfo = ctx.createOscillator();
+    const lfoGain = ctx.createGain();
+    const filter = ctx.createBiquadFilter();
+    const gain = ctx.createGain();
+    const mainGain = ctx.createGain();
+
+    // Main Oscillator
+    osc.type = DEFAULT_SETTINGS.waveform;
+    osc.frequency.setValueAtTime(440, ctx.currentTime);
+    
+    // LFO (Modulates Filter Cutoff)
+    lfo.type = 'sine';
+    lfo.frequency.setValueAtTime(DEFAULT_SETTINGS.lfoRate, ctx.currentTime);
+    lfoGain.gain.setValueAtTime(DEFAULT_SETTINGS.lfoAmount, ctx.currentTime);
+
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(DEFAULT_SETTINGS.cutoff, ctx.currentTime);
+    filter.Q.setValueAtTime(DEFAULT_SETTINGS.resonance, ctx.currentTime);
+
+    gain.gain.setValueAtTime(0, ctx.currentTime);
+    mainGain.gain.setValueAtTime(DEFAULT_SETTINGS.volume, ctx.currentTime);
+
+    // Patching
+    osc.connect(filter);
+    lfo.connect(lfoGain);
+    lfoGain.connect(filter.frequency); // Modulate cutoff frequency
+    
+    filter.connect(gain);
+    gain.connect(mainGain);
+    mainGain.connect(ctx.destination);
+
+    osc.start();
+    lfo.start();
+
+    audioCtxRef.current = ctx;
+    oscRef.current = osc;
+    lfoRef.current = lfo;
+    lfoGainRef.current = lfoGain;
+    filterRef.current = filter;
+    gainRef.current = gain;
+    mainGainRef.current = mainGain;
+  }, []);
+
+  const updateParams = useCallback((settings: SynthSettings) => {
+    if (!audioCtxRef.current || !oscRef.current || !filterRef.current || !mainGainRef.current || !lfoRef.current || !lfoGainRef.current) return;
+    const ctx = audioCtxRef.current;
+    const now = ctx.currentTime;
+    
+    oscRef.current.type = settings.waveform;
+    filterRef.current.Q.setTargetAtTime(settings.resonance, now, 0.05);
+    mainGainRef.current.gain.setTargetAtTime(settings.volume, now, 0.05);
+    
+    lfoRef.current.frequency.setTargetAtTime(settings.lfoRate, now, 0.05);
+    lfoGainRef.current.gain.setTargetAtTime(settings.lfoAmount, now, 0.05);
+  }, []);
+
+  const setFrequency = useCallback((freq: number) => {
+    if (!oscRef.current || !audioCtxRef.current) return;
+    oscRef.current.frequency.setTargetAtTime(freq, audioCtxRef.current.currentTime, 0.05);
+  }, []);
+
+  const setCutoff = useCallback((cutoff: number) => {
+    if (!filterRef.current || !audioCtxRef.current) return;
+    filterRef.current.frequency.setTargetAtTime(cutoff, audioCtxRef.current.currentTime, 0.05);
+  }, []);
+
+  const setResonance = useCallback((q: number) => {
+    if (!filterRef.current || !audioCtxRef.current) return;
+    filterRef.current.Q.setTargetAtTime(q, audioCtxRef.current.currentTime, 0.05);
+  }, []);
+
+  const setLFORate = useCallback((rate: number) => {
+    if (!lfoRef.current || !audioCtxRef.current) return;
+    lfoRef.current.frequency.setTargetAtTime(rate, audioCtxRef.current.currentTime, 0.05);
+  }, []);
+
+  const setLFOAmount = useCallback((amount: number) => {
+    if (!lfoGainRef.current || !audioCtxRef.current) return;
+    lfoGainRef.current.gain.setTargetAtTime(amount, audioCtxRef.current.currentTime, 0.05);
+  }, []);
+
+  const triggerOn = useCallback((settings: SynthSettings) => {
+    if (!gainRef.current || !audioCtxRef.current || isPlayingRef.current) return;
+    const ctx = audioCtxRef.current;
+    const now = ctx.currentTime;
+    
+    gainRef.current.gain.cancelScheduledValues(now);
+    gainRef.current.gain.setValueAtTime(gainRef.current.gain.value, now);
+    gainRef.current.gain.linearRampToValueAtTime(1, now + settings.attack);
+    isPlayingRef.current = true;
+  }, []);
+
+  const triggerOff = useCallback((settings: SynthSettings) => {
+    if (!gainRef.current || !audioCtxRef.current || !isPlayingRef.current) return;
+    const ctx = audioCtxRef.current;
+    const now = ctx.currentTime;
+    
+    gainRef.current.gain.cancelScheduledValues(now);
+    gainRef.current.gain.setValueAtTime(gainRef.current.gain.value, now);
+    gainRef.current.gain.linearRampToValueAtTime(0, now + settings.release);
+    isPlayingRef.current = false;
+  }, []);
+
+  return {
+    initAudio,
+    updateParams,
+    setFrequency,
+    setCutoff,
+    setResonance,
+    setLFORate,
+    setLFOAmount,
+    triggerOn,
+    triggerOff,
+    audioCtx: audioCtxRef.current
+  };
+};
