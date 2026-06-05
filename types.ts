@@ -22,6 +22,7 @@ export interface HandData {
   x: number; // 0 to 1
   y: number; // 0 to 1
   active: boolean;
+  isFist: boolean;
 }
 
 export interface HandState {

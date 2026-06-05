@@ -13,8 +13,8 @@ export const useMediaPipe = (videoRef: React.RefObject<HTMLVideoElement | null>)
   const [error, setError] = useState<string | null>(null);
 
   const handStateRef = useRef<HandState>({
-    left: { x: 0.5, y: 0.5, active: false },
-    right: { x: 0.5, y: 0.5, active: false }
+    left: { x: 0.5, y: 0.5, active: false, isFist: false },
+    right: { x: 0.5, y: 0.5, active: false, isFist: false }
   });
 
   const lastResultsRef = useRef<HandLandmarkerResult | null>(null);
@@ -101,8 +101,8 @@ export const useMediaPipe = (videoRef: React.RefObject<HTMLVideoElement | null>)
     };
 
     const processResults = (results: HandLandmarkerResult) => {
-        let left: HandData = { ...handStateRef.current.left, active: false };
-        let right: HandData = { ...handStateRef.current.right, active: false };
+        let left: HandData = { ...handStateRef.current.left, active: false, isFist: false };
+        let right: HandData = { ...handStateRef.current.right, active: false, isFist: false };
 
         if (results.landmarks) {
           for (let i = 0; i < results.landmarks.length; i++) {
@@ -118,10 +118,30 @@ export const useMediaPipe = (videoRef: React.RefObject<HTMLVideoElement | null>)
             const x = 1.0 - tip.x;
             const y = tip.y;
 
+            // Compute if hand is in a fist
+            // Distance check tip-to-wrist vs PIP-to-wrist coordinates
+            let curledFingers = 0;
+            const wrist = landmarks[0];
+            const dist3D = (p1: any, p2: any) => {
+              if (!p1 || !p2) return 999;
+              return Math.hypot(p1.x - p2.x, p1.y - p2.y, p1.z - p2.z);
+            };
+
+            // Index: tip (8) vs PIP (6)
+            if (dist3D(landmarks[8], wrist) < dist3D(landmarks[6], wrist)) curledFingers++;
+            // Middle: tip (12) vs PIP (10)
+            if (dist3D(landmarks[12], wrist) < dist3D(landmarks[10], wrist)) curledFingers++;
+            // Ring: tip (16) vs PIP (14)
+            if (dist3D(landmarks[16], wrist) < dist3D(landmarks[14], wrist)) curledFingers++;
+            // Pinky: tip (20) vs PIP (18)
+            if (dist3D(landmarks[20], wrist) < dist3D(landmarks[18], wrist)) curledFingers++;
+
+            const isFist = curledFingers >= 3;
+
             if (isRight) {
-                 right = { x, y, active: true };
+                 right = { x, y, active: true, isFist };
             } else {
-                 left = { x, y, active: true };
+                 left = { x, y, active: true, isFist };
             }
           }
         }
@@ -134,12 +154,14 @@ export const useMediaPipe = (videoRef: React.RefObject<HTMLVideoElement | null>)
             left: {
                 x: lerp(handStateRef.current.left.x, left.x, T),
                 y: lerp(handStateRef.current.left.y, left.y, T),
-                active: left.active
+                active: left.active,
+                isFist: left.isFist
             },
             right: {
                 x: lerp(handStateRef.current.right.x, right.x, T),
                 y: lerp(handStateRef.current.right.y, right.y, T),
-                active: right.active
+                active: right.active,
+                isFist: right.isFist
             }
         };
     };
