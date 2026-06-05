@@ -6,7 +6,7 @@
 
 - **Gesture-Based Control**: Conduct sound using both hands without touching your keyboard or mouse.
 - **2D Trajectory Plotting**: A visual persistence layer that tracks your hand movements over a 5-second window, helping you visualize your performance "paths."
-- **3D Visualization**: Real-time rendering of performance "sabers" and interactive elements using Three.js.
+- **Performance HUD**: Real-time feedback for parameters like Filter Cutoff, LFO Rate, Pitch, and Resonance directly on the conduction pad.
 - **Dynamic Synthesis**: A multi-mode oscillator (Sine, Square, Saw, Triangle) with LFO modulation and resonant filtering.
 - **Low-Latency Tracking**: Powered by MediaPipe's GPU-accelerated vision tasks.
 
@@ -16,7 +16,7 @@ The synth is divided into two logical control stages:
 
 ### Right Hand: The Lead Voice
 - **Horizontal (X)**: Controls **Pitch** (Frequency). Moving right increases the note frequency.
-- **Vertical (Y)**: Controls **Filter Resonance** (Q). Moving up increases the resonance "squeeze."
+- **Vertical (Y)**: Controls **Filter Resonance** (Q). Moving down increases the resonance "squeeze."
 
 ### Left Hand: The Filter Conductor
 - **Horizontal (X)**: Controls **LFO Rate**. Moving right speeds up the modulation wobble.
@@ -32,11 +32,6 @@ This project is built using a modern frontend stack designed for high-performanc
 
 ### Computer Vision
 - **[@mediapipe/tasks-vision](https://developers.google.com/mediapipe/solutions/vision/hand_landmarker)**: Google's machine learning suite used for detecting 21 unique hand landmarks at high frame rates.
-
-### 3D Rendering (Visualizers)
-- **[Three.js](https://threejs.org/)**: The underlying 3D engine.
-- **[@react-three/fiber](https://github.com/pmndrs/react-three-fiber)**: A React bridge for Three.js.
-- **[@react-three/drei](https://github.com/pmndrs/drei)**: A collection of useful helpers for React Three Fiber (Grid, Environment, Stars, etc.).
 
 ### Audio Engine
 - **Web Audio API**: Native browser API used for low-latency oscillator generation, BiQuad filtering, and LFO modulation.

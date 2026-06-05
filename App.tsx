@@ -1,4 +1,3 @@
-
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
@@ -15,7 +14,7 @@ import {
   MIN_LFO_RATE, MAX_LFO_RATE,
   MAX_RESONANCE
 } from './constants';
-import { Waves, Zap, AudioLines, Settings2, Hand, Power, Activity } from 'lucide-react';
+import { Waves, Zap, AudioLines, Settings2, Hand, Activity } from 'lucide-react';
 
 interface SpatialPoint {
   x: number;

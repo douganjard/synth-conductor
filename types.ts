@@ -1,10 +1,9 @@
-
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
 */
 
-import * as THREE from 'three';
+// --- SYNTH ENGINE TYPES ---
 
 export interface SynthSettings {
   waveform: OscillatorType;
@@ -30,41 +29,6 @@ export interface HandState {
   right: HandData;
 }
 
-export enum GameStatus {
-  IDLE = 'IDLE',
-  PLAYING = 'PLAYING',
-  ENDED = 'ENDED'
-}
-
-export enum CutDirection {
-  UP = 0,
-  DOWN = 1,
-  LEFT = 2,
-  RIGHT = 3,
-  ANY = 8
-}
-
-export interface NoteData {
-  id: string;
-  time: number;
-  lineIndex: number;
-  lineLayer: number;
-  type: 'left' | 'right';
-  cutDirection: CutDirection;
-  hit?: boolean;
-  missed?: boolean;
-  hitTime?: number;
-}
-
-export interface HandPositions {
-  left: THREE.Vector3 | null;
-  right: THREE.Vector3 | null;
-  leftVelocity: THREE.Vector3;
-  rightVelocity: THREE.Vector3;
-}
-
-export type HandType = 'left' | 'right';
-
 export const DEFAULT_SETTINGS: SynthSettings = {
   waveform: 'sawtooth',
   attack: 0.1,
@@ -79,8 +43,8 @@ export const DEFAULT_SETTINGS: SynthSettings = {
 };
 
 export const COLORS = {
-  left: '#ef4444',  // Red (LFO)
-  right: '#3b82f6', // Blue (Synth)
+  left: '#ef4444',  // Red (Filter)
+  right: '#3b82f6', // Blue (Oscillator)
   accent: '#10b981', // Green
   bg: '#0a0a0a',
   surface: '#171717',

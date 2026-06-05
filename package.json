@@ -5,15 +5,13 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview"
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "lint": "tsc --noEmit"
   },
   "dependencies": {
-    "react": "^19.2.0",
-    "react-dom": "^19.2.0",
-    "three": "0.167.1",
-    "@react-three/fiber": "8.17.6",
-    "@react-three/drei": "9.112.0",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
     "@mediapipe/tasks-vision": "0.10.9",
     "lucide-react": "0.436.0"
   },
